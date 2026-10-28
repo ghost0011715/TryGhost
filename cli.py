@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-CLI Entry Point for FileScanner
-"""
+"""Command-line entry point for the local FileScanner."""
 
 import argparse
 import sys
@@ -14,12 +12,12 @@ import json
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
-        description="FileScanner with ChatGPT Integration",
+        description="Scan local files, summarize directories, and find duplicates",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python cli.py --scan .                    # Scan current directory
-  python cli.py --scan /path/to/files       # Scan specific directory
+  python cli.py --scan "C:\\Users\\you\\Documents"
   python cli.py --scan . --find-duplicates  # Scan and find duplicates
   python cli.py --interactive               # Start interactive mode
         """
@@ -39,7 +37,7 @@ Examples:
     parser.add_argument(
         "--analyze",
         action="store_true",
-        help="Analyze files with ChatGPT"
+        help="Print a local file summary; no data is uploaded"
     )
     parser.add_argument(
         "--interactive",
@@ -70,6 +68,9 @@ Examples:
     if len(sys.argv) == 1:
         parser.print_help()
         return
+
+    if not args.interactive and not args.scan:
+        parser.error("--scan PATH or --interactive is required")
     
     # Interactive mode
     if args.interactive:
@@ -90,8 +91,7 @@ Examples:
             
             # Filter by extension if specified
             if args.filter_ext:
-                extensions = [f".{ext}" if not ext.startswith('.') else ext 
-                             for ext in args.filter_ext.split(',')]
+                extensions = [ext.strip() for ext in args.filter_ext.split(",")]
                 files = scanner.filter_by_extension(files, extensions)
             
             print(f"✅ Found {len(files)} files\n")
@@ -114,6 +114,7 @@ Examples:
                 print(f"    {ext}: {count} files")
             
             # Find duplicates if requested
+            duplicates = {}
             if args.find_duplicates:
                 print_section("Duplicate Analysis")
                 finder = FileDuplicateFinder()
@@ -127,6 +128,17 @@ Examples:
                             print(f"     - {f['path']} ({format_bytes(f['size_bytes'])})")
                 else:
                     print("✅ No duplicate files found!")
+
+            analysis = {}
+            if args.analyze:
+                analysis = FileAnalysisApp.analyze_files(files)
+                print_section("Local Summary")
+                print(f"Files summarized: {analysis['total_files']}")
+                print(f"Total size: {format_bytes(analysis['total_size_bytes'])}")
+                if analysis["top_extensions"]:
+                    print("Most common extensions:")
+                    for item in analysis["top_extensions"]:
+                        print(f"  {item['extension']}: {item['count']}")
             
             # Show sample files
             print_section("Sample Files")
@@ -148,18 +160,27 @@ Examples:
                 output_data = {
                     "summary": stats,
                     "files": files,
-                    "duplicates": {k: v for k, v in finder.find_duplicates(files).items()} if args.find_duplicates else {}
+                    "duplicates": duplicates,
                 }
+                if args.analyze:
+                    output_data["analysis"] = analysis
                 
                 try:
-                    with open(args.output, 'w') as f:
-                        json.dump(output_data, f, indent=2)
+                    with open(args.output, "w", encoding="utf-8") as file_handle:
+                        json.dump(
+                            output_data,
+                            file_handle,
+                            indent=2,
+                            ensure_ascii=False,
+                        )
                     print(f"\n✅ Results saved to: {args.output}")
-                except Exception as e:
-                    print(f"❌ Error saving to file: {str(e)}")
+                except OSError as exc:
+                    raise OSError(
+                        f"Could not save report to {args.output}: {exc}"
+                    ) from exc
         
-        except Exception as e:
-            print(f"❌ Error: {str(e)}")
+        except (OSError, ValueError) as exc:
+            print(f"❌ Error: {exc}")
             sys.exit(1)
 
 
